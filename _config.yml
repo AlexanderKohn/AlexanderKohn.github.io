@@ -1,3 +1,8 @@
 theme: jekyll-theme-minimal
-title: Alex's Blog-thing
-description: Discussing Data Science/Books/Life
+title: Alexander Kohn
+description: Small, careful experiments on how neural networks learn and what they prefer.
+show_downloads: false
+
+# Keep the repo's working files out of the built site.
+exclude:
+  - README.md
