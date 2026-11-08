@@ -9,7 +9,7 @@ security and trust & safety. I worked on malware detection and behavioral authen
 I now build models at Blizzard Entertainment that detect toxic chat, offensive player names and cheating hardware.
 Since 2023 that work has included LLM labeling, fine-tuning and retrieval-based assistants.
 
-**I'm looking for roles in technical AI safety.** What my work has in common is careful evaluation, clean labels,
+**I'm interested in technical AI safety.** What my work has in common is careful evaluation, clean labels,
 and models that hold up after deployment. Outside work, I've been running small independent experiments on two
 questions:
 
