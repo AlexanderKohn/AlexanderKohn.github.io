@@ -8,6 +8,7 @@ I'm a data scientist with a Ph.D. in physical chemistry from MIT and eight years
 security and trust & safety. I worked on malware detection and behavioral authentication at BlackBerry Cylance, and
 I now build models at Blizzard Entertainment that detect toxic chat, offensive player names and cheating hardware.
 Since 2023 that work has included LLM labeling, fine-tuning and retrieval-based assistants.
+([Résumé PDF]({{ '/assets/Kohn_Resume_2026.pdf' | relative_url }}))
 
 **I'm interested in technical AI safety.** What my work has in common is careful evaluation, clean labels,
 and models that hold up after deployment. Outside work, I've been running small independent experiments on two
@@ -108,6 +109,7 @@ Python tools from 2018:
 
 ## Contact
 
+- Résumé: [PDF]({{ '/assets/Kohn_Resume_2026.pdf' | relative_url }})
 - Email: [awolfekohn@gmail.com](mailto:awolfekohn@gmail.com)
 - LinkedIn: [alexander-kohn](https://www.linkedin.com/in/alexander-kohn/)
 - GitHub: [AlexanderKohn](https://github.com/AlexanderKohn)
