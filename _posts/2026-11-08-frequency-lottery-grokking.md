@@ -2,180 +2,184 @@
 layout: post
 title: "The frequency lottery in grokking: a real mechanism, an irrelevant draw"
 short_title: "The frequency lottery in grokking"
-description: "Does random initialization decide which Fourier feature each neuron learns when a small MLP groks modular addition, and is that why width matters? About 130 CPU training runs say mostly no, with one twist."
+description: "Does the random draw at initialization decide which frequency each neuron learns when a small network groks modular addition? I ran about 130 small experiments on a desktop CPU to find out. Mostly it doesn't, with one twist."
 ---
 
-Small networks trained on modular addition famously *grok*. They memorize the training set almost immediately, sit
-at chance on held-out pairs for thousands of steps, and then abruptly generalize. Mechanistic work has shown what
-they learn when they do: each hidden neuron specializes in a single Fourier frequency, and the network combines
-them into a "clock" algorithm for adding mod *p*.
+If you train a small network to add numbers mod *p*, something odd happens. It memorizes the training set almost
+immediately, then sits at chance on held-out pairs for thousands of steps, and then, quite suddenly, it gets them
+right. This is *grokking*. We also know a fair amount about what the network has learned once it gets there: each
+hidden neuron latches onto a single Fourier frequency, and together they implement a little clock-arithmetic
+algorithm.
 
-A recent paper (arXiv 2602.16849) proposes a **lottery-ticket mechanism** for how neurons pick their frequency.
-Under small random initialization, the frequencies compete inside each neuron. The winner is the one that starts with
-the largest magnitude and the best-aligned phases. If that's right, the random draw at initialization should
-largely determine the final algorithm. It would also suggest a tidy story for why **wider networks grok faster**:
-more neurons means more lottery tickets, so it's more likely that every frequency the algorithm needs gets covered.
+What I wanted to understand was how each neuron ends up with its frequency. A recent paper
+([He et al., 2026](https://arxiv.org/abs/2602.16849)) argues it's a lottery. At initialization, every neuron has a
+little bit of every frequency in its weights. Those frequencies compete, and the one that starts out biggest and
+best-aligned wins.
 
-I tested that story on my own desktop CPU. The short version:
+That's a nice story, and it suggests an explanation for something else: wider networks grok faster. More neurons
+means more lottery tickets, so you're more likely to end up with every frequency the algorithm needs.
 
-- **The lottery is real but weak.** Initialization predicts a neuron's final frequency at 3–10× chance, but most
-  neurons don't end up on their predicted winner.
-- **Neurons commit almost immediately.** Most settle on their final frequency within the first ~100 steps, long
-  before the network generalizes. About 30% switch frequency between memorizing and grokking.
-- **Natural variation in the draw doesn't affect outcomes.** At a fixed width, seeds with better initial
-  "coverage" don't grok faster.
-- **Coverage doesn't explain why width matters.** Frequency coverage at initialization is already complete at the
-  narrowest width that groks, yet grokking keeps getting 6× faster as width grows.
-- **The twist:** the lottery's *mechanism* is powerful when you push it. Initializations with strong, phase-aligned
-  Fourier features grok **5–9× faster**, however those features are spread across frequencies.
+I tested this on my desktop CPU over a few hours of training. Here's the short version of what I found:
 
-## Setup
+- The lottery is real, but the random draw at initialization doesn't decide it. On full data, Adam's first few
+  steps largely do. On a grokking split, it gets decided gradually during memorization.
+- The draw doesn't explain why width matters. Seeds with a "luckier" initialization don't grok any faster.
+- But if you *rig* the initialization, giving every neuron a strong, well-aligned frequency, the network groks 5–9×
+  faster, regardless of which frequencies you hand out.
 
-- **Task and model:** a 1-hidden-layer ReLU MLP takes one-hot encodings of *a* and *b* and predicts *a + b* mod 47.
-  It trains on 50% of the 2,209 possible pairs, full-batch, with AdamW (lr 10⁻³, weight decay 1.0). This is the
-  standard grokking setup; at width 512 it memorizes in about 200 steps and generalizes at about 5,500.
-- **Choice of p:** I used p = 47 rather than the usual 97 or 113 so that a sweep over 8 widths × 8 seeds fits on a
-  CPU. The whole project, about 130 training runs, ran on 6 cores in a few hours.
-- **Input format:** the one-hot input matters. The same MLP given *a* and *b* as raw numbers never even memorizes,
-  because nothing in two scalars tells it about the wrap-around at *p*.
+## The setup
 
-![transformer vs. MLP baselines]({{ '/assets/img/grokking/compare_models_add_p97.png' | relative_url }})
-*Baselines at p = 97, from before the main experiment. Top: the classic 1-layer transformer. Middle: the one-hot MLP
-used here. Bottom: the raw-integer MLP, which never fits.*
+The model is a one-hidden-layer MLP that gets *a* and *b* as one-hot vectors and predicts *a + b* mod 47. It trains
+on half of the 2,209 possible pairs with full-batch AdamW and weight decay 1.0, a standard grokking setup. At width
+512 it memorizes in about 200 steps and generalizes around step 5,500. I used p = 47 instead of the usual 97 or 113
+so that sweeping 8 widths × 8 seeds would fit on a CPU.
 
-**Measuring which frequency a neuron uses.** Each hidden neuron *m* has a row of input weights for *a*, another for
-*b*, and a column of output weights. Taking the discrete Fourier transform of each gives, for every frequency *k*,
-a magnitude and a phase:
+To see which frequency a neuron uses, I take the Fourier transform of its input weights (one set for *a*, one for
+*b*) and its output weights. Its dominant frequency is the one with the most power, and its phases tell you whether
+it will actually vote for the right answer. For that, the input phases have to add up to the output phase, and in
+every trained network they do, almost exactly.
 
-- **Dominant frequency k\*:** the frequency with the most combined power in neuron *m*.
-- **Phase alignment D = φₐ + φ_b − ψ:** this combination of the input phases (φₐ, φ_b) and output phase (ψ) has to be
-  near 0 for the neuron to vote for the correct answer *a + b*.
+To predict the winner from the initial weights, I followed the paper: score each frequency by its starting
+magnitude times its phase alignment, and bet on the top score.
 
-On every trained network, D concentrates completely at 0 across neurons. The theory's sign convention, adapted to
-separate input weights for *a* and *b*, checks out.
-
-**The init-time predictor.** Following the paper, I score each frequency by magnitude × phase alignment at
-initialization and predict that the top score wins.
-
-## 1. The lottery predicts, but weakly
+## The lottery is drawn early, and mostly not at initialization
 
 ![predictor accuracy]({{ '/assets/img/grokking/phase1b_predictor_accuracy.png' | relative_url }})
-*Fraction of active neurons whose final frequency matches the init-time prediction. Width 512, 3 seeds per
-condition. The dashed line is chance (1/23).*
+*How often the init-time prediction matches each neuron's final frequency (width 512, 3 seeds per bar). The dashed
+line is chance, 1 in 23.*
 
-- **Full training data (no grokking):** the magnitude × alignment predictor gets **44%** of neurons right, against
-  4.3% chance. Raw magnitude alone does much worse (24%).
-- **Grokking split:** accuracy drops to **14–22%**.
-- **Init scale:** the theory assumes small initialization, but shrinking the init made prediction *worse* (14% at
-  scale 0.1 vs. 22% at 1.0). My best guess is the optimizer. The analysis is for plain gradient descent, while Adam's
-  early updates have a fixed size regardless of weight scale, so with a small init they swamp it.
+Scored on the initial weights, the paper's predictor does clearly better than chance, but not by as much as I
+expected. It's right for 44% of neurons when training on all the data, and only 14–22% on the grokking split. Odder
+still, shrinking the initialization (which the theory assumes is small) made it *worse*.
+
+The neurons commit very early, though. Checkpointing every 10 steps, the typical neuron has settled on its final
+frequency within 10–20 steps on full data, and by around step 90 on the grokking split, well before the training
+set is even fit:
 
 ![lock-in]({{ '/assets/img/grokking/phase1b_lockin.png' | relative_url }})
-*When does each neuron settle on its final frequency for good? Dotted line: training set fit. Dashed line: test set
-generalized.*
+*When each neuron settles on its final frequency for good, on the grokking split. The dotted line is when the
+training set is fit; the dashed line is when the network generalizes.*
 
-Neurons commit very early. With checkpoints every 10 steps, the median neuron has locked in its final frequency by
-**step ~90**, and about 65% have locked in before the training set is even fit. Yet the init-time predictor tops out
-well below that. So the first few dozen optimizer steps are doing a lot of the choosing, beyond what the initial
-weights encode.
+So if the winner is decided within the first hundred or so steps, but the initial weights only predict it about
+half the time, what decides it? I reran the same predictor on the checkpoints *after* step 0:
 
-Grokking also **reshuffles** neurons. About 30% change frequency between memorizing and generalizing, against
-≤ 6% when training on all the data.
+![predictor over time]({{ '/assets/img/grokking/phase1e_e1_predictor_over_time.png' | relative_url }})
+*The same prediction made from the weights at step t instead of step 0.*
 
-**A surprise: no "key frequencies."** Transformers that grok modular addition are usually reported to end up using
-just 3–6 frequencies. This MLP uses **all 23**, nearly uniformly, even 30,000 steps after grokking. Weight decay
-sharpens individual neurons onto one frequency each, but never prunes the population down to a few.
+On full data, ten Adam steps are enough to lift the prediction from 44% to 85% at small initialization. Adam's
+early updates are roughly the same size whatever the weights are, so when the initial weights are small, those
+first steps overwrite them almost immediately. The "initial condition" that matters is the network after ten
+steps, not the one you sampled. That also explains why smaller inits looked less predictable.
 
-## 2. Width matters a lot, and coverage doesn't explain it
+The grokking split behaves differently. Accuracy climbs slowly through memorization, reaching about 70% by step 200,
+and about 30% of neurons switch frequency between memorizing and generalizing. On full data, almost none do. Fitting
+half the data seems to push neurons around in a way that fitting all of it doesn't.
+
+One thing I first thought was surprising turned out not to be. The network uses all 23 frequencies, about evenly,
+even long after grokking, whereas transformers are usually reported to settle on a handful. But that's exactly what
+the analytic solution for this kind of MLP looks like: [Gromov (2023)](https://arxiv.org/abs/2301.02679) assigns one
+frequency per neuron across the full set, and notes that extra width just adds redundant copies. My guess is that the
+transformer's sparsity comes from its shared embedding layer, which can only fit a few frequencies, but I haven't
+tested that yet.
+
+## Width matters a lot, but not through the lottery
 
 ![width sweep]({{ '/assets/img/grokking/phase1c_width_sweep.png' | relative_url }})
-*8 widths × 8 seeds. Left: fraction of seeds that generalize within 50k steps. Middle: steps to 95% test accuracy.
-Right: how many frequencies the initial weights "cover", against the coupon-collector expectation.*
+*8 widths × 8 seeds. Left: the fraction of seeds that generalize within 50k steps. Middle: steps to 95% test
+accuracy. Right: how many distinct frequencies the initial weights "cover", against what random assignment
+predicts.*
 
-There's a sharp threshold:
+There's a sharp threshold. At width 64 and below, the network never generalizes; at width 64 it memorizes but stalls
+at 30–48% test accuracy. At width 128 it gets to 97–99%, slowly (about 27,600 steps). At 256 it takes about 7,900 steps, and
+at 512 about 4,600.
 
-| width | test accuracy | steps to 95% test accuracy |
-|---|---|---|
-| 4–64 | 1–48% (plateaus) | never, within 50k steps |
-| 128 | 97–99% | ~27,600 |
-| 256 | 100% | ~7,900 |
-| 512 | 100% | ~4,600 |
+If the coverage story were right, the threshold would sit where the initial draw first covers every frequency. It
+doesn't. At width 64 the initial weights already cover 22 of the 23 frequencies, and from 128 up every seed covers
+all of them, yet grokking keeps getting 6× faster from 128 to 512.
 
-**The coverage story fails.** If generalizing required the lottery winners to cover the spectrum, the threshold
-would sit where coverage completes.
+The more direct test came out null too. At a fixed width, seeds whose initial draw covered more frequencies, or
+stacked more neurons on each one, didn't grok any faster. With 8 seeds per width I can only rule out fairly strong
+effects, but there also isn't much seed-to-seed variation to explain.
 
-- At width 64, the initial winners already cover 22 of 23 frequencies, yet the network stalls at 39% test accuracy.
-- From width 128 up, coverage is complete in every seed, yet grokking still gets 6× faster from 128 to 512.
+The one thing that did correlate was the *final* network. Below the threshold, networks that concentrated more
+neurons on fewer frequencies generalized better. Redundancy looks like the scarce resource, rather than coverage.
 
-**Within-width test.** I also asked the more direct question: at a fixed width, do seeds whose initial draw covers
-more frequencies, or stacks more neurons per frequency, grok faster? Across six init-time statistics and three
-outcome measures, none predicted anything. The combined permutation tests gave every p ≥ 0.25. With 8 seeds per
-width, this only rules out fairly strong effects, but the spread between seeds is also small (about ±10%).
+I'd like to say width helps by adding neurons per frequency, but there's a confound I haven't ruled out. With Adam at
+a fixed learning rate, every weight moves by about the same amount per step, so a wider network's output simply
+changes faster. Some of the width effect could be an effective learning rate rather than anything about
+frequencies. That's the next thing to test.
 
-One thing does correlate, though only after training. Below the threshold, networks that end up concentrating
-**more neurons on fewer frequencies** reach higher test accuracy (p = 0.003). Redundancy seems to be the scarce
-resource, not coverage.
+## Rigging the lottery
 
-## 3. Interventions: editing the lottery directly
+To get at causation, I took width 128, the narrowest width that generalizes, edited the initial weights, and
+retrained on the same data:
 
-To test causation, I took width 128, the narrowest width that generalizes, and edited the initial weights before
-training:
-
-- **Knockout:** remove the run's 5 most-used frequencies from every neuron, keeping each neuron's weight norm.
-- **Monoculture:** project every neuron onto a single frequency.
-- **Rigged:** give each neuron one frequency at twice its largest initial magnitude, with phases perfectly aligned.
-  The frequencies are assigned either round-robin (perfectly even coverage) or at random.
-
-Each edited network trained on the same data split as its unedited baseline, which reproduced the original run
-exactly.
+- **Knockout:** remove the five frequencies the network ended up relying on most, from every neuron.
+- **Monoculture:** force every neuron onto a single frequency.
+- **Rigged:** give each neuron one strong frequency (twice its largest starting component) with its phases
+  perfectly aligned. The frequencies are handed out either evenly or at random.
 
 ![interventions]({{ '/assets/img/grokking/phase1d_curves.png' | relative_url }})
-*Test accuracy over training for each edit, 3 seeds (rows). The dotted line is 95%.*
+*Test accuracy over training for each edit, one row per seed. The dotted line is 95%.*
 
 | edit to the initial weights | steps to 95% test accuracy (3 seeds) |
 |---|---|
 | none | 31.9k / 24.0k / 27.8k |
-| remove top-5 frequencies | 26.2k / 23.1k / 29.5k |
-| single frequency | 4 of 9 runs never reach 95% |
-| rigged, round-robin | **11.2k / 3.0k / 3.5k** |
-| rigged, random assignment | **4.3k / 4.9k / 6.2k** |
+| remove the top 5 frequencies | 26.2k / 23.1k / 29.5k |
+| everything on one frequency | 4 of 9 runs never reach 95% |
+| rigged, frequencies spread evenly | **11.2k / 3.0k / 3.5k** |
+| rigged, frequencies assigned at random | **4.3k / 4.9k / 6.2k** |
 
-- **Knockout does nothing.** The removed frequencies simply **grow back** during training, to 12–14% of the final
-  network. Whichever frequencies a network ends up using, they aren't fixed by its initialization.
-- **Monoculture hurts.** One frequency is enough to solve the task in principle, but forcing it slows learning, and
-  the network spreads back out to 21–23 frequencies anyway.
-- **Rigging helps enormously, but not through coverage.** With strong, aligned features at the start, test accuracy
-  starts climbing almost immediately and the long plateau mostly disappears. Random assignment is just as fast as
-  perfectly even coverage.
+The knockout did nothing; the network just regrew the missing frequencies. Monoculture hurt: one frequency is
+enough to solve the task in principle, but the network learned more slowly and spread back out to 21–23 frequencies
+anyway.
 
-## What I take away
+Rigging helped a lot. Test accuracy starts rising almost immediately, and the long plateau mostly disappears. The
+even and random assignments are equally fast, so what matters isn't which frequencies each neuron gets, but that
+every neuron starts out as a clean, aligned feature.
 
-The lottery-ticket *mechanism* is real: frequencies with stronger, better-aligned starting components do tend to
-win, and you can exploit that to make a network grok 5–9× faster. But the natural draw from a standard random
-initialization is too weak to matter:
+It helps to be precise about why. In a random initialization the phases are random, so the neurons don't add up to
+any coherent signal: there's nothing there for width to amplify. Rigging creates that signal from the start.
 
-- it predicts only a minority of final assignments;
-- seeds differ too little for it to change outcomes;
-- the network routes around attempts to take frequencies away.
+This fits a few things people have seen before:
 
-What seems to set grokking speed is **how strong the population's Fourier signal is to begin with**. Which particular
-frequencies won, or how many were covered, matters little. On that reading, width helps by adding neurons per
-frequency, which strengthens that starting signal. It doesn't help by covering more of the spectrum.
+- **Circuit competition:** [Varma et al. (2023)](https://arxiv.org/abs/2309.02390) describe grokking as a
+  generalizing circuit that's more efficient but slower to learn than memorization. Rigging just gives it a head
+  start.
+- **Structured initialization:** [GrokTransfer (Xu et al., 2025)](https://arxiv.org/abs/2504.13292) shows that
+  initializing from a smaller model's learned embedding can nearly eliminate the grokking delay. What I'd like to
+  add is *which* property of the initialization does the work. I can't separate concentration from alignment yet,
+  but the next round of experiments is designed to.
+- **A contrast with sparse parity:** there, [Edelman et al. (2023)](https://arxiv.org/abs/2309.03800) find that
+  width works like a parallel search for rare "winning ticket" neurons. Modular addition seems different: it's a
+  dense task that wants the whole spectrum, so there's no rare winner to find, which may be why luck in the draw
+  doesn't matter.
 
-## Caveats and next steps
+## Where this leaves me
 
-- **Sample sizes are small:** 3 seeds per intervention and 8 per width. The null result at a fixed width rules out
-  only strong effects.
-- **Everything is at p = 47 with AdamW.** The obvious next checks are a plain gradient-descent arm, since the theory
-  is for gradient flow and Adam may be what blurs the lottery, and a confirmation at p = 97.
-- **The rigged initialization changes several things at once:** it makes each neuron single-frequency, aligns its
-  phases, and raises the overall Fourier signal. A sweep over the boost strength, plus alignment-only and
-  concentration-only variants, would show which of these does the work.
-- **The checkpoint grid had to change.** The originally planned schedule of 250-step checkpoints was far too coarse,
-  because most of the frequency competition is over by step 250.
+The lottery mechanism is real: frequencies with stronger, better-aligned starting components do tend to win, and
+you can exploit that to make a network grok several times faster. But the draw you get from a normal random
+initialization barely matters. With full data it's mostly redrawn by the optimizer in the first few steps; on a
+grokking split, memorization reshuffles it; and either way the network routes around attempts to take frequencies
+away.
 
-*All runs were on a desktop CPU (6 cores) in PyTorch.
-**Code, specs and the full results write-up:**
-[github.com/AlexanderKohn/grokking_experiments](https://github.com/AlexanderKohn/grokking_experiments). See
-[`experiments/01_frequency_lottery/RESULTS.md`](https://github.com/AlexanderKohn/grokking_experiments/blob/master/experiments/01_frequency_lottery/RESULTS.md)
-for every number above and the commands to reproduce them.*
+Two of my explanations are still hypotheses. "Width helps by adding neurons per frequency" has to survive the
+effective-learning-rate control. "Initial signal strength decides grokking time" needs a single measurable quantity
+that every run (different widths, seeds and rigged variants) lines up on.
+
+## What's next
+
+The follow-ups are written up as a plan in the repo. Briefly, they are:
+
+- plain gradient descent instead of Adam (the theory's own setting);
+- a sweep over *p* to see whether the width threshold scales with the number of frequencies;
+- an embedding bottleneck, to see whether it produces transformer-style sparsity;
+- a width sweep with the learning rate rescaled per layer, to remove the effective-learning-rate confound;
+- a dose-response on the rigged initialization that separates concentration from alignment.
+
+Everything here ran on a desktop CPU in PyTorch, at p = 47, with 3–8 seeds per condition, so treat the numbers as
+small-sample.
+**The code, the plan for the follow-ups, and the full results with every number above are on GitHub:**
+[github.com/AlexanderKohn/grokking_experiments](https://github.com/AlexanderKohn/grokking_experiments). The detailed
+write-up is
+[`RESULTS.md`](https://github.com/AlexanderKohn/grokking_experiments/blob/master/experiments/01_frequency_lottery/RESULTS.md).
