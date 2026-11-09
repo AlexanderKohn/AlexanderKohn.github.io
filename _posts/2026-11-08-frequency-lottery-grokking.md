@@ -1,6 +1,7 @@
 ---
 layout: post
 title: "The frequency lottery in grokking: a real mechanism, an irrelevant draw"
+short_title: "The frequency lottery in grokking"
 description: "Does random initialization decide which Fourier feature each neuron learns when a small MLP groks modular addition, and is that why width matters? About 130 CPU training runs say mostly no, with one twist."
 ---
 

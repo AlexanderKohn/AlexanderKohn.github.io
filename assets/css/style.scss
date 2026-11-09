@@ -41,3 +41,18 @@ section table {
   border-left: 4px solid #e0a800;
   padding: 0.4em 0.8em;
 }
+
+/* Post titles in lists are links: keep them link-colored. */
+.post-list a { font-weight: 700; }
+
+/* Sidebar navigation */
+.side-nav { margin-top: 1.5em; }
+.side-nav .nav-label {
+  margin: 1.2em 0 0.3em;
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #999;
+}
+.side-nav ul { list-style: none; padding-left: 0; margin: 0; }
+.side-nav li { margin: 0.25em 0; }
