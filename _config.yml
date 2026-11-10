@@ -1,7 +1,11 @@
-theme: jekyll-theme-minimal
 title: Alexander Kohn
 description: Data scientist (Ph.D., physical chemistry) with eight years of production ML in security and trust & safety, interested in technical AI safety.
-show_downloads: false
+author: Alexander Kohn
+
+# The layouts and stylesheet live in this repo (_layouts/, assets/css/site.css); no theme is used.
+# jekyll-seo-tag writes the <title>, description and link-preview tags in the page head.
+plugins:
+  - jekyll-seo-tag
 
 # Keep the repo's working files out of the built site.
 exclude:
